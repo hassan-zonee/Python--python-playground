@@ -12,7 +12,7 @@ predictor_path = "shape_predictor_68_face_landmarks.dat"
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor(predictor_path)
 
-input_video_path = 'test.mp4'
+input_video_path = 'test2.mp4'
 output_video_path = 'out_test.mp4'
 
 cap = cv2.VideoCapture(input_video_path)
@@ -27,7 +27,8 @@ out = cv2.VideoWriter(output_video_path, fourcc, fps, (output_width, frame_heigh
 last_speaker_face = None
 max_lip_distance = 0
 
-speaker_history = deque(maxlen=10)
+speaker_history = deque(maxlen=7)
+center_history = deque(maxlen=15) 
 frame_counter = 0
 
 while True:
@@ -61,7 +62,7 @@ while True:
         face_counts = Counter([(f.left(), f.top(), f.right(), f.bottom()) for f in speaker_history])
         most_common_face, count = face_counts.most_common(1)[0]
 
-        if count >= 10:  # At least 60% consistency
+        if count >= 3:  # consistency percent
             for f in speaker_history:
                 if (f.left(), f.top(), f.right(), f.bottom()) == most_common_face:
                     last_speaker_face = f
@@ -70,16 +71,28 @@ while True:
     if last_speaker_face:
         (x, y, w, h) = (last_speaker_face.left(), last_speaker_face.top(),
                         last_speaker_face.width(), last_speaker_face.height())
+        
+        face_center = (x + w // 2, y + h // 2)
+        center_history.append(face_center)
     else:
         out.write(frame)
         continue
 
-    face_center = (x + w // 2, y + h // 2)
-    crop_x1 = max(0, face_center[0] - output_width // 2)
-    crop_x2 = min(frame_width, face_center[0] + output_width // 2)
+    avg_x = int(np.mean([c[0] for c in center_history]))
+    avg_y = int(np.mean([c[1] for c in center_history]))
+    smoothed_center = (avg_x, avg_y)
 
-    crop_y1 = max(0, face_center[1] - frame_height // 2)
-    crop_y2 = min(frame_height, face_center[1] + frame_height // 2)
+    crop_x1 = max(0, smoothed_center[0] - output_width // 2)
+    crop_x2 = min(frame_width, smoothed_center[0] + output_width // 2)
+
+    if crop_x2 - crop_x1 < output_width:
+        if crop_x1 == 0:
+            crop_x2 = output_width
+        else:
+            crop_x1 = frame_width - output_width
+
+    crop_y1 = 0
+    crop_y2 = frame_height
 
     cropped_frame = frame[crop_y1:crop_y2, crop_x1:crop_x2]
     cropped_frame_resized = cv2.resize(cropped_frame, (output_width, frame_height))
